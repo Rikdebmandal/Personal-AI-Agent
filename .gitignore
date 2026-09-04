@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+logs/
+finetune/data/
+finetune/output/
+finetune/vendor/
+unsloth_compiled_cache/
+*.gguf
+*.safetensors
+.env

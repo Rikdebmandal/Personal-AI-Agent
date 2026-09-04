@@ -1,0 +1,17 @@
+# Fine-tuning stack (multi-GB, only needed for finetune/local_qlora.py).
+#
+# torch must be installed separately FIRST with the CUDA-enabled build -
+# plain `pip install torch` grabs a CPU-only wheel by default:
+#
+#   pip install --index-url https://download.pytorch.org/whl/cu126 torch torchvision
+#
+# Then install the rest:
+unsloth
+bitsandbytes>=0.50.0
+peft
+transformers
+datasets
+trl
+accelerate
+gguf
+sentencepiece

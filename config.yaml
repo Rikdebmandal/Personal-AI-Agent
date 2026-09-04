@@ -1,0 +1,27 @@
+# Personal AI Agent config
+
+ollama:
+  host: "http://127.0.0.1:11434"
+  # qwen3:4b: ~15-30s per turn on this hardware (its "thinking" mode can't be
+  # fully disabled here), but it passes tool arguments (like file paths)
+  # faithfully and reliably reports tool errors instead of making things up.
+  # llama3.2:3b answers in under a second but was observed mangling file
+  # paths and inventing fake file listings in testing - given this agent has
+  # full filesystem/shell access, correctness wins over speed here. Swap to
+  # llama3.2:3b only for read-only/low-stakes use where speed matters more.
+  model: "qwen3:4b"
+
+server:
+  host: "127.0.0.1"
+  port: 8000
+
+safety:
+  # If true, file writes/deletes and shell commands require a click to approve
+  # in the UI before they run. Turn off only once you trust the setup.
+  require_confirmation: true
+  action_log_path: "logs/actions.jsonl"
+
+web_search:
+  # ddgs needs no key and is tried first. If it gets rate-limited and you
+  # want a fallback, get a free key at https://tavily.com and paste it here.
+  tavily_api_key: ""

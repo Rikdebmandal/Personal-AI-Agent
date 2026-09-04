@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Personal AI Agent</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115;
+    --panel: #1a1d24;
+    --border: #2b2f38;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --accent: #5b8cff;
+    --danger: #ff5b6e;
+    --ok: #4fd18b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  header .sub { font-weight: 400; color: var(--muted); font-size: 13px; margin-top: 2px; }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .msg { max-width: 720px; padding: 10px 14px; border-radius: 10px; line-height: 1.45; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: white; }
+  .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .msg.system { align-self: center; color: var(--muted); font-size: 13px; }
+  .tool-card {
+    align-self: flex-start;
+    max-width: 720px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-family: Consolas, monospace;
+  }
+  .tool-card .name { color: var(--accent); font-weight: 600; }
+  .tool-card .args { color: var(--muted); margin-top: 4px; word-break: break-all; }
+  .tool-card .result { margin-top: 6px; white-space: pre-wrap; max-height: 160px; overflow-y: auto; }
+  .confirm-card { border-color: var(--danger); }
+  .confirm-actions { margin-top: 10px; display: flex; gap: 8px; }
+  .confirm-actions button {
+    padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px;
+  }
+  .approve { background: var(--ok); color: #06231a; }
+  .deny { background: var(--danger); color: #2a0509; }
+  #inputBar { display: flex; gap: 10px; padding: 16px 20px; border-top: 1px solid var(--border); }
+  #inputBox {
+    flex: 1; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); font-size: 14px; resize: none;
+  }
+  #sendBtn { padding: 0 20px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; font-size: 14px; }
+  #sendBtn:disabled { opacity: 0.5; cursor: default; }
+</style>
+</head>
+<body>
+<header>
+  Personal AI Agent
+  <div class="sub">Local model via Ollama — full file/shell/web access, writes &amp; commands ask for approval first.</div>
+</header>
+<div id="messages"></div>
+<div id="inputBar">
+  <textarea id="inputBox" rows="1" placeholder="Ask anything..."></textarea>
+  <button id="sendBtn">Send</button>
+</div>
+
+<script>
+const messagesEl = document.getElementById('messages');
+const inputBox = document.getElementById('inputBox');
+const sendBtn = document.getElementById('sendBtn');
+
+function addMessage(role, text) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + role;
+  el.textContent = text;
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return el;
+}
+
+function addToolCard(name, args) {
+  const el = document.createElement('div');
+  el.className = 'tool-card';
+  el.innerHTML = `<div class="name">tool: ${name}</div><div class="args">${JSON.stringify(args)}</div><div class="result"></div>`;
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return el;
+}
+
+function addConfirmCard(id, name, args) {
+  const el = document.createElement('div');
+  el.className = 'tool-card confirm-card';
+  el.innerHTML = `
+    <div class="name">approval needed: ${name}</div>
+    <div class="args">${JSON.stringify(args)}</div>
+    <div class="confirm-actions">
+      <button class="approve">Approve</button>
+      <button class="deny">Deny</button>
+    </div>`;
+  const approveBtn = el.querySelector('.approve');
+  const denyBtn = el.querySelector('.deny');
+  const resolve = async (approved) => {
+    approveBtn.disabled = true;
+    denyBtn.disabled = true;
+    await fetch('/api/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, approved }),
+    });
+    el.querySelector('.name').textContent = approved ? `approved: ${name}` : `denied: ${name}`;
+  };
+  approveBtn.onclick = () => resolve(true);
+  denyBtn.onclick = () => resolve(false);
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function sendMessage() {
+  const text = inputBox.value.trim();
+  if (!text) return;
+  inputBox.value = '';
+  sendBtn.disabled = true;
+  addMessage('user', text);
+
+  const resp = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: text }),
+  });
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const toolCards = {};
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split('\n\n');
+    buffer = frames.pop();
+    for (const frame of frames) {
+      if (!frame.startsWith('data: ')) continue;
+      const event = JSON.parse(frame.slice(6));
+      handleEvent(event, toolCards);
+    }
+  }
+  sendBtn.disabled = false;
+}
+
+function handleEvent(event, toolCards) {
+  if (event.type === 'text') {
+    addMessage('assistant', event.content);
+  } else if (event.type === 'tool_call') {
+    const card = addToolCard(event.tool, event.arguments);
+    toolCards[event.tool] = card;
+  } else if (event.type === 'tool_result') {
+    const card = toolCards[event.tool];
+    const resultText = JSON.stringify(event.result, null, 2);
+    if (card) card.querySelector('.result').textContent = resultText;
+  } else if (event.type === 'confirmation_required') {
+    addConfirmCard(event.id, event.tool, event.arguments);
+  } else if (event.type === 'done') {
+    // no-op
+  }
+}
+
+sendBtn.onclick = sendMessage;
+inputBox.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+</script>
+</body>
+</html>
